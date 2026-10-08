@@ -39,11 +39,12 @@ function draw(){
  $('#app').innerHTML=({stock:vStock,prod:vProd,bill:vBill,cust:vCust,price:vPrice,co:vCo})[tab]();
  if(tab=='bill'&&D.c.length)fill();
 }
-const codeOpts=()=>opts(D.c.filter(x=>x.active),x=>`<option value="${x.id}">${e(x.code)} · ${money(x.pack_price)}</option>`);
+const codeOpts=()=>opts(D.c.filter(x=>x.active),x=>`<option value="${x.id}">${e(x.code)} · ${e(lab(x))} · ${money(x.pack_price)}</option>`);
 const due=id=>D.du.find(x=>x.customer_id==id)?.due||0;
+const vn=id=>D.v.find(v=>v.id==id)?.name||'',lab=x=>vn(x.variety_id)+(x.sub_variety?' – '+x.sub_variety:'');
 
 function vStock(){const m={};D.s.forEach(r=>(m[r.code]??={})[r.size]=r.in_stock);
- return `<h2>Stock</h2><div class="card"><table><tr><th>Code</th>${SZ.map(s=>`<th>${s}</th>`).join('')}</tr>${Object.keys(m).sort().map(k=>`<tr><td>${e(k)}</td>${SZ.map(s=>`<td class="${m[k][s]<=0?'low':''}">${m[k][s]??0}</td>`).join('')}</tr>`).join('')||'<tr><td>No codes yet. Add them under Prices.</td></tr>'}</table></div>
+ return `<h2>Stock</h2><div class="card"><table><tr><th>Code</th>${SZ.map(s=>`<th>${s}</th>`).join('')}</tr>${Object.keys(m).sort().map(k=>`<tr><td>${e(k)}<br><span class="m">${e(lab(D.c.find(c=>c.code==k)||{variety_id:0}))}</span></td>${SZ.map(s=>`<td class="${m[k][s]<=0?'low':''}">${m[k][s]??0}</td>`).join('')}</tr>`).join('')||'<tr><td>No codes yet. Add them under Prices.</td></tr>'}</table></div>
  <button class="s" onclick="go('co')">Company details</button><button class="s" onclick="backup()">Download backup</button><button class="s" onclick="sb.auth.signOut()">Log out</button>`}
 
 function vProd(){return `<h2>Add production</h2><div class="card"><select id="pc">${codeOpts()}</select><select id="pu"><option value="pack">Full packs (1 M + 1 L + 1 XL each)</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="pq" type="number" min="1" placeholder="Quantity"><button onclick="addProd()">Add to stock</button></div>`}
@@ -83,13 +84,13 @@ async function addPay(){const a=+$('#pa').value;if(!(a>0))return alert('Enter th
  const {error}=await sb.from('payments').insert({customer_id:cur.id,amount:a});if(error)return alert(error.message);await load();openC(cur.id)}
 
 function vPrice(){return `<h2>Prices and codes</h2><div class="card"><b>New variety</b><input id="vn" placeholder="e.g. Plain"><button class="s" onclick="addV()">Add variety</button></div>
- <div class="card"><b>New code</b><select id="cv">${opts(D.v,x=>`<option value="${x.id}">${e(x.name)}</option>`)}</select><input id="cc" placeholder="Code, e.g. PL-01"><div class="row"><input id="cpk" type="number" placeholder="Pack price"><input id="csg" type="number" placeholder="Single price"></div><button onclick="addC()">Add code</button></div>
- ${opts(D.c,x=>`<div class="card"><b>${e(x.code)}</b> <span class="m">${e(D.v.find(v=>v.id==x.variety_id)?.name)} · pack price, single price</span><div class="row"><input id="pk${x.id}" type="number" value="${x.pack_price}"><input id="sg${x.id}" type="number" value="${x.single_price}"></div><button class="s" onclick="savePrice(${x.id})">Save prices</button></div>`)}`}
+ <div class="card"><b>New code</b><select id="cv">${opts(D.v,x=>`<option value="${x.id}">${e(x.name)}</option>`)}</select><input id="cc" placeholder="Code, e.g. PL-01"><input id="csv" list="svl" placeholder="Sub-variety (optional), e.g. Oxford"><datalist id="svl">${[...new Set(D.c.map(x=>x.sub_variety).filter(Boolean))].map(x=>`<option value="${e(x)}">`).join('')}</datalist><div class="row"><input id="cpk" type="number" placeholder="Pack price"><input id="csg" type="number" placeholder="Single price"></div><button onclick="addC()">Add code</button></div>
+ ${opts(D.c,x=>`<div class="card"><b>${e(x.code)}</b> <span class="m">${e(vn(x.variety_id))} · pack price, single price</span><input id="sv${x.id}" list="svl" placeholder="Sub-variety" value="${e(x.sub_variety||'')}"><div class="row"><input id="pk${x.id}" type="number" value="${x.pack_price}"><input id="sg${x.id}" type="number" value="${x.single_price}"></div><button class="s" onclick="savePrice(${x.id})">Save prices</button></div>`)}`}
 async function addV(){const name=$('#vn').value.trim();if(!name)return;const {error}=await sb.from('varieties').insert({name});error?alert(error.message):go('price')}
 async function addC(){const code=$('#cc').value.trim().toUpperCase(),pk=$('#cpk').value,sg=$('#csg').value;
  if(!code||!$('#cv').value||pk===''||sg==='')return alert('Fill every field');
- const {error}=await sb.from('price_codes').insert({code,variety_id:+$('#cv').value,pack_price:+pk,single_price:+sg});error?alert(error.message):go('price')}
-async function savePrice(id){const {error}=await sb.from('price_codes').update({pack_price:+$('#pk'+id).value,single_price:+$('#sg'+id).value}).eq('id',id);error?alert(error.message):alert('Prices updated. Old bills keep their old prices.')}
+ const {error}=await sb.from('price_codes').insert({code,variety_id:+$('#cv').value,sub_variety:$('#csv').value.trim()||null,pack_price:+pk,single_price:+sg});error?alert(error.message):go('price')}
+async function savePrice(id){const {error}=await sb.from('price_codes').update({sub_variety:$('#sv'+id).value.trim()||null,pack_price:+$('#pk'+id).value,single_price:+$('#sg'+id).value}).eq('id',id);error?alert(error.message):alert('Prices updated. Old bills keep their old prices.')}
 
 async function all(t){let r=[],i=0,d;do{d=(await sb.from(t).select('*').range(i,i+999)).data||[];r=r.concat(d);i+=1000}while(d.length==1000);return r}
 async function backup(){const o={};for(const t of['varieties','price_codes','customers','bills','bill_items','payments','production'])o[t]=await all(t);
@@ -101,13 +102,13 @@ function calc(){const sub=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),R2=x=>Math
  const g=R2(sub*r);return{sub,g,tot:R2(sub+g)}}
 function gstUI(){const c=calc(),ck=(k,l)=>`<label><input type="checkbox" style="width:auto" ${bill[k]?'checked':''} onchange="bill.${k}=this.checked;draw()"> ${l}</label>`;
  return ck('gst','GST bill')+(bill.gst?`<input type="number" step="0.01" placeholder="GST %" value="${bill.rate||''}" onchange="bill.rate=+this.value;draw()">`+ck('incl','Prices already include GST')+ck('igst','Other state (IGST)')+`<p class="m">Amount ${money(c.sub)} · GST ${money(c.g)}</p>`:'')+`<h3>Total ${money(c.tot)}</h3>`}
-async function showBill(id){const {data:b,error}=await sb.from('bills').select('*,customers(name,phone),bill_items(*,price_codes(code))').eq('id',id).single();
+async function showBill(id){const {data:b,error}=await sb.from('bills').select('*,customers(name,phone),bill_items(*,price_codes(code,sub_variety,varieties(name)))').eq('id',id).single();
  if(error)return alert(error.message);await load();inApp=true;$('#nav').innerHTML='';$('#app').innerHTML=billHTML(b,D.st)}
 function billHTML(b,S){const g=b.gst_type&&b.gst_type!='none',bal=(+b.prev_due)+(+b.total)-(+b.paid),h=b.gst_rate/2;
  return `<div class="no-print"><button onclick="window.print()">Print / Share PDF</button><button class="s" onclick="go('stock')">Done</button></div>
 <div class="bill"><div class="hd"><h1>${e(S.name||'New BABA Garments')}</h1><p>${e(S.tag||'')}</p><p>${e(S.addr||'')}</p><p>${e(S.ph||'')} ${e(S.mail||'')}</p>${S.gstin?`<p><b>GSTIN:</b> ${e(S.gstin)}</p>`:''}</div><div class="bd">${g?'TAX INVOICE':'BILL'}</div><div class="in">
 <div class="box"><b>Bill no:</b> ${b.id} &nbsp; <b>Date:</b> ${dt(b.created_at)}<br><b>Customer:</b> ${e(b.customers.name)} ${e(b.customers.phone||'')}</div>
-<table><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>${b.bill_items.map(i=>`<tr><td>${e(i.price_codes.code)} ${i.unit=='pack'?'(pack of 3)':'('+i.size+')'}</td><td>${i.qty}</td><td>${money(i.unit_price)}</td><td>${money(i.qty*i.unit_price)}</td></tr>`).join('')}</table>
+<table><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>${b.bill_items.map(i=>`<tr><td>${e(i.price_codes.code)} ${i.unit=='pack'?'(pack of 3)':'('+i.size+')'}<br><small>${e(i.price_codes.varieties?.name||'')}${i.price_codes.sub_variety?' – '+e(i.price_codes.sub_variety):''}</small></td><td>${i.qty}</td><td>${money(i.unit_price)}</td><td>${money(i.qty*i.unit_price)}</td></tr>`).join('')}</table>
 <table class="t">${g?`<tr><td>Taxable amount</td><td>${money(b.subtotal)}</td></tr>`+(b.gst_type=='igst'?`<tr><td>IGST ${b.gst_rate}%</td><td>${money(b.gst_amount)}</td></tr>`:`<tr><td>CGST ${h}%</td><td>${money(b.gst_amount/2)}</td></tr><tr><td>SGST ${h}%</td><td>${money(b.gst_amount/2)}</td></tr>`):''}<tr class="tot"><td>Total</td><td>${money(b.total)}</td></tr><tr><td>Paid now</td><td>${money(b.paid)}</td></tr><tr><td>Previous dues</td><td>${money(b.prev_due)}</td></tr><tr class="tot"><td>Balance due</td><td>${money(bal)}</td></tr></table>
 <p class="m">${S.acc?'A/c No: '+e(S.acc)+' · IFSC: '+e(S.ifsc||'')+'<br>':''}${e(S.terms||'')}</p></div><div class="ty">Thank you, visit again!</div></div>`}
 const CF=[['name','Company name'],['tag','Tagline, e.g. Wholesale · Manufacturers: Shirts'],['addr','Address'],['ph','Phone numbers'],['mail','Email'],['gstin','GSTIN'],['acc','Bank A/c number'],['ifsc','IFSC'],['terms','Note at bottom of bill']];
