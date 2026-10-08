@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Shirt Manager</title>
+<style>
+:root{--bg:#f3f5f8;--c:#fff;--t:#1b2433;--m:#66748a;--a:#2f4f8f;--r:#b3261e;--b:#d9dee7}
+@media(prefers-color-scheme:dark){:root{--bg:#121722;--c:#1c2331;--t:#eef1f6;--m:#98a3b6;--a:#7fa2e8;--r:#ff8a80;--b:#2d3648}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px/1.4 system-ui,-apple-system,sans-serif;padding:0 0 84px}
+main{max-width:640px;margin:auto;padding:14px}h2{margin:8px 0 12px;font-size:22px}h3{margin:6px 0}
+.card{background:var(--c);border:1px solid var(--b);border-radius:10px;padding:12px;margin-bottom:12px}
+input,select,button{font:inherit;width:100%;padding:11px;margin:4px 0;border-radius:8px;border:1px solid var(--b);background:var(--c);color:var(--t)}
+button{background:var(--a);color:var(--bg);border:0;font-weight:600}button.s{background:none;color:var(--a);border:1px solid var(--a)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+table{width:100%;border-collapse:collapse}td,th{padding:7px 4px;text-align:left;border-bottom:1px solid var(--b)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid var(--b);padding-bottom:env(safe-area-inset-bottom)}
+nav button{background:none;color:var(--m);border:0;border-radius:0;margin:0;padding:13px 2px;font-size:13px}nav button.on{color:var(--a);box-shadow:inset 0 3px var(--a)}
+.low{color:var(--r);font-weight:700}.m{color:var(--m);font-size:14px}
+</style></head><body><main id="app"></main><nav id="nav"></nav>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb=supabase.createClient('https://weekbclyaomqurbsokbk.supabase.co','sb_publishable_6JcVHT_nXdCGJZSMtwSmBA_wlloZ2x0');
+const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SZ=['M','L','XL'],money=n=>'₹'+Number(n||0).toLocaleString('en-IN'),opts=(a,f)=>a.map(f).join('');
+const dt=d=>new Date(d).toLocaleDateString('en-IN');
+let tab='stock',D={v:[],c:[],s:[],cu:[],du:[]},bill={cust:'',lines:[]},cur=null;
+const tabs=[['stock','Stock'],['prod','Produce'],['bill','Bill'],['cust','Customers'],['price','Prices']];
+async function load(){
+ const r=await Promise.all(['varieties','price_codes','stock','customers','customer_dues'].map(t=>sb.from(t).select('*')));
+ const bad=r.find(x=>x.error);if(bad)alert('Could not load data: '+bad.error.message);
+ const [v,c,s,cu,du]=r.map(x=>x.data||[]);
+ D={v,c:c.sort((a,b)=>a.code.localeCompare(b.code)),s,cu,du};
+}
+async function go(t){tab=t;cur=null;await load();draw()}
+function draw(){
+ $('#nav').innerHTML=tabs.map(([k,n])=>`<button class="${k==tab?'on':''}" onclick="go('${k}')">${n}</button>`).join('');
+ $('#app').innerHTML=({stock:vStock,prod:vProd,bill:vBill,cust:vCust,price:vPrice})[tab]();
+ if(tab=='bill'&&D.c.length)fill();
+}
+const codeOpts=()=>opts(D.c.filter(x=>x.active),x=>`<option value="${x.id}">${e(x.code)} · ${money(x.pack_price)}</option>`);
+const due=id=>D.du.find(x=>x.customer_id==id)?.due||0;
+
+function vStock(){const m={};D.s.forEach(r=>(m[r.code]??={})[r.size]=r.in_stock);
+ return `<h2>Stock</h2><div class="card"><table><tr><th>Code</th>${SZ.map(s=>`<th>${s}</th>`).join('')}</tr>${Object.keys(m).sort().map(k=>`<tr><td>${e(k)}</td>${SZ.map(s=>`<td class="${m[k][s]<=0?'low':''}">${m[k][s]??0}</td>`).join('')}</tr>`).join('')||'<tr><td>No codes yet. Add them under Prices.</td></tr>'}</table></div>
+ <button class="s" onclick="backup()">Download backup</button><button class="s" onclick="sb.auth.signOut()">Log out</button>`}
+
+function vProd(){return `<h2>Add production</h2><div class="card"><select id="pc">${codeOpts()}</select><select id="pu"><option value="pack">Full packs (1 M + 1 L + 1 XL each)</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="pq" type="number" min="1" placeholder="Quantity"><button onclick="addProd()">Add to stock</button></div>`}
+async function addProd(){const c=+$('#pc').value,u=$('#pu').value,q=+$('#pq').value;if(!c||!(q>=1))return alert('Choose a code and enter a quantity');
+ const {error}=await sb.from('production').insert((u=='pack'?SZ:[u]).map(size=>({code_id:c,size,qty:q})));
+ if(error)return alert(error.message);alert('Stock added');go('stock')}
+
+function vBill(){const t=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),d=due(bill.cust);
+ return `<h2>New bill</h2><div class="card"><select onchange="bill.cust=this.value;draw()"><option value="">Select customer</option>${opts(D.cu,x=>`<option value="${x.id}" ${x.id==bill.cust?'selected':''}>${e(x.name)} (${x.kind})</option>`)}</select>${bill.cust?`<p class="m">Old dues: <b class="${d>0?'low':''}">${money(d)}</b></p>`:'<p class="m">New customer? Add them under Customers first.</p>'}</div>
+ <div class="card"><select id="lc" onchange="fill()">${codeOpts()}</select><div class="row"><select id="lu" onchange="fill()"><option value="pack">Pack of 3</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="lq" type="number" min="1" value="1"></div><input id="lp" type="number" placeholder="Price each"><button class="s" onclick="addLine()">Add item</button></div>
+ <div class="card">${bill.lines.map((l,i)=>`<p>${e(l.code)} · ${l.unit=='pack'?'pack':l.size} × ${l.qty} @ ${money(l.price)} = <b>${money(l.qty*l.price)}</b> <a onclick="bill.lines.splice(${i},1);draw()">✕</a></p>`).join('')||'<p class="m">No items yet</p>'}<h3>Total ${money(t)}</h3><input id="bp" type="number" placeholder="Paid now (₹)"><button onclick="saveBill()">Save bill</button></div>`}
+function fill(){const c=D.c.find(x=>x.id==$('#lc').value);if(c)$('#lp').value=$('#lu').value=='pack'?c.pack_price:c.single_price}
+function addLine(){const c=D.c.find(x=>x.id==$('#lc').value),u=$('#lu').value,q=+$('#lq').value,p=$('#lp').value;
+ if(!c||!(q>=1)||p==='')return alert('Fill code, quantity and price');
+ bill.lines.push({id:c.id,code:c.code,unit:u=='pack'?'pack':'single',size:u=='pack'?null:u,qty:q,price:+p});draw()}
+async function saveBill(){if(!bill.cust)return alert('Select a customer');if(!bill.lines.length)return alert('Add items first');
+ const need={};bill.lines.forEach(l=>(l.unit=='pack'?SZ:[l.size]).forEach(s=>{const k=l.id+s;need[k]=(need[k]||0)+l.qty}));
+ const short=D.s.filter(r=>need[r.code_id+r.size]>r.in_stock).map(r=>r.code+' '+r.size);
+ if(short.length&&!confirm('Not enough stock for: '+short.join(', ')+'. Save anyway?'))return;
+ const total=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),paid=+$('#bp').value||0;
+ const {data,error}=await sb.from('bills').insert({customer_id:+bill.cust,total,paid}).select().single();if(error)return alert(error.message);
+ const r=await sb.from('bill_items').insert(bill.lines.map(l=>({bill_id:data.id,code_id:l.id,unit:l.unit,size:l.size,qty:l.qty,unit_price:l.price})));
+ if(r.error)return alert('Bill #'+data.id+' saved but items failed: '+r.error.message);
+ alert('Bill #'+data.id+' saved');bill={cust:'',lines:[]};go('stock')}
+
+function vCust(){if(cur)return vCur();
+ return `<h2>Customers</h2><div class="card"><input id="cn" placeholder="Name"><input id="cp" type="tel" placeholder="Phone"><select id="ck"><option value="retail">Retail</option><option value="wholesale">Wholesale</option></select><button onclick="addCust()">Add customer</button></div>${opts(D.cu,x=>`<div class="card" onclick="openC(${x.id})"><b>${e(x.name)}</b> <span class="m">${x.kind} ${e(x.phone||'')}</span><br>Due: <b class="${due(x.id)>0?'low':''}">${money(due(x.id))}</b></div>`)}`}
+async function addCust(){const name=$('#cn').value.trim();if(!name)return alert('Enter a name');
+ const {error}=await sb.from('customers').insert({name,phone:$('#cp').value.trim()||null,kind:$('#ck').value});error?alert(error.message):go('cust')}
+async function openC(id){const [b,p]=await Promise.all([sb.from('bills').select('*').eq('customer_id',id).order('id',{ascending:false}),sb.from('payments').select('*').eq('customer_id',id).order('id',{ascending:false})]);cur={id,b:b.data||[],p:p.data||[]};draw()}
+function vCur(){const x=D.cu.find(y=>y.id==cur.id),d=due(cur.id);
+ return `<button class="s" onclick="cur=null;draw()">Back to customers</button><h2>${e(x.name)}</h2><div class="card"><h3>Due: <span class="${d>0?'low':''}">${money(d)}</span></h3><input id="pa" type="number" placeholder="Payment received (₹)"><button onclick="addPay()">Record payment</button></div>
+ <div class="card"><b>Bills</b>${cur.b.map(b=>`<p>#${b.id} on ${dt(b.created_at)}: ${money(b.total)}, paid ${money(b.paid)}</p>`).join('')||'<p class="m">No bills yet</p>'}</div>
+ <div class="card"><b>Later payments</b>${cur.p.map(p=>`<p>${dt(p.created_at)}: ${money(p.amount)}</p>`).join('')||'<p class="m">None yet</p>'}</div>`}
+async function addPay(){const a=+$('#pa').value;if(!(a>0))return alert('Enter the amount');
+ const {error}=await sb.from('payments').insert({customer_id:cur.id,amount:a});if(error)return alert(error.message);await load();openC(cur.id)}
+
+function vPrice(){return `<h2>Prices and codes</h2><div class="card"><b>New variety</b><input id="vn" placeholder="e.g. Plain"><button class="s" onclick="addV()">Add variety</button></div>
+ <div class="card"><b>New code</b><select id="cv">${opts(D.v,x=>`<option value="${x.id}">${e(x.name)}</option>`)}</select><input id="cc" placeholder="Code, e.g. PL-01"><div class="row"><input id="cpk" type="number" placeholder="Pack price"><input id="csg" type="number" placeholder="Single price"></div><button onclick="addC()">Add code</button></div>
+ ${opts(D.c,x=>`<div class="card"><b>${e(x.code)}</b> <span class="m">${e(D.v.find(v=>v.id==x.variety_id)?.name)} · pack price, single price</span><div class="row"><input id="pk${x.id}" type="number" value="${x.pack_price}"><input id="sg${x.id}" type="number" value="${x.single_price}"></div><button class="s" onclick="savePrice(${x.id})">Save prices</button></div>`)}`}
+async function addV(){const name=$('#vn').value.trim();if(!name)return;const {error}=await sb.from('varieties').insert({name});error?alert(error.message):go('price')}
+async function addC(){const code=$('#cc').value.trim().toUpperCase(),pk=$('#cpk').value,sg=$('#csg').value;
+ if(!code||!$('#cv').value||pk===''||sg==='')return alert('Fill every field');
+ const {error}=await sb.from('price_codes').insert({code,variety_id:+$('#cv').value,pack_price:+pk,single_price:+sg});error?alert(error.message):go('price')}
+async function savePrice(id){const {error}=await sb.from('price_codes').update({pack_price:+$('#pk'+id).value,single_price:+$('#sg'+id).value}).eq('id',id);error?alert(error.message):alert('Prices updated. Old bills keep their old prices.')}
+
+async function all(t){let r=[],i=0,d;do{d=(await sb.from(t).select('*').range(i,i+999)).data||[];r=r.concat(d);i+=1000}while(d.length==1000);return r}
+async function backup(){const o={};for(const t of['varieties','price_codes','customers','bills','bill_items','payments','production'])o[t]=await all(t);
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(o,null,1)],{type:'application/json'}));a.download='backup-'+new Date().toISOString().slice(0,10)+'.json';a.click()}
+
+function login(){$('#nav').innerHTML='';$('#app').innerHTML=`<h2>Shirt Manager</h2><div class="card"><input id="em" type="email" placeholder="Email"><input id="pw" type="password" placeholder="Password"><button onclick="signIn()">Log in</button></div>`}
+async function signIn(){const {error}=await sb.auth.signInWithPassword({email:$('#em').value.trim(),password:$('#pw').value});if(error)alert(error.message)}
+sb.auth.onAuthStateChange((ev,s)=>{if(!s)login();else if(ev=='INITIAL_SESSION'||(ev=='SIGNED_IN'&&!$('#nav').innerHTML))go('stock')});
+</script></body></html>
