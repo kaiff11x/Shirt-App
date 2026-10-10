@@ -33,7 +33,8 @@ async function load(){
  const bad=r.find(x=>x.error);if(bad)alert('Could not load data: '+bad.error.message);
  const [v,c,s,cu,du]=r.map(x=>x.data||[]);
  const st=(await sb.from('settings').select('data').eq('id',1)).data?.[0]?.data||{};
- D={v,c:c.sort((a,b)=>a.code.localeCompare(b.code)),s,cu,du,st};
+ const pr=(await sb.from('production').select('*').order('id',{ascending:false}).limit(150)).data||[];
+ D={v,c:c.sort((a,b)=>a.code.localeCompare(b.code)),s,cu,du,st,pr};
 }
 async function go(t){if(bill.edit&&t!='bill')bill={cust:'',lines:[]};inApp=true;tab=t;cur=null;await load();draw()}
 function draw(){
@@ -49,7 +50,7 @@ function vStock(){const m={};D.s.forEach(r=>(m[r.code]??={})[r.size]=r.in_stock)
  return `<h2>Stock</h2>${lowBox()}<div class="card"><table><tr><th>Code</th>${SZ.map(s=>`<th>${s}</th>`).join('')}</tr>${Object.keys(m).sort().map(k=>`<tr><td>${e(k)}<br><span class="m">${e(lab(D.c.find(c=>c.code==k)||{variety_id:0}))}</span></td>${SZ.map(s=>`<td class="${m[k][s]<=low()?'low':''}">${m[k][s]??0}</td>`).join('')}</tr>`).join('')||'<tr><td>No codes yet. Add them under Prices.</td></tr>'}</table></div>
  <button class="s" onclick="go('rep')">Sales report</button><button class="s" onclick="go('co')">Company details</button><button class="s" onclick="backup()">Download backup</button><button class="s" onclick="sb.auth.signOut()">Log out</button>`}
 
-function vProd(){return `<h2>Add production</h2><div class="card"><select id="pc">${codeOpts()}</select><select id="pu"><option value="pack">Full packs (1 M + 1 L + 1 XL each)</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="pq" type="number" min="1" placeholder="Quantity"><button onclick="addProd()">Add to stock</button></div>`}
+function vProd(){return `<h2>Add production</h2><div class="card"><select id="pc">${codeOpts()}</select><select id="pu"><option value="pack">Full packs (1 M + 1 L + 1 XL each)</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="pq" type="number" min="1" placeholder="Quantity"><button onclick="addProd()">Add to stock</button></div>${prodList()}`}
 async function addProd(){const c=+$('#pc').value,u=$('#pu').value,q=+$('#pq').value;if(!c||!(q>=1))return alert('Choose a code and enter a quantity');
  const {error}=await sb.from('production').insert((u=='pack'?SZ:[u]).map(size=>({code_id:c,size,qty:q})));
  if(error)return alert(error.message);alert('Stock added');go('stock')}
@@ -90,7 +91,7 @@ async function openC(id){const [b,p]=await Promise.all([sb.from('bills').select(
 function vCur(){const x=D.cu.find(y=>y.id==cur.id),d=due(cur.id);
  return `<button class="s" onclick="cur=null;draw()">Back to customers</button><h2>${e(x.name)}</h2><div class="card"><h3>Due: <span class="${d>0?'low':''}">${money(d)}</span></h3><input id="pa" type="number" placeholder="Payment received (₹)"><button onclick="addPay()">Record payment</button><button class="s" onclick="statement()">Print statement</button></div>
  <div class="card"><b>Bills</b>${cur.b.map(b=>`<p onclick="showBill(${b.id})">#${b.id} on ${dt(b.created_at)}: ${money(b.total)}, paid ${money(b.paid)} · <u>open bill</u></p>`).join('')||'<p class="m">No bills yet</p>'}</div>
- <div class="card"><b>Later payments</b>${cur.p.map(p=>`<p>${dt(p.created_at)}: ${money(p.amount)}</p>`).join('')||'<p class="m">None yet</p>'}</div>`}
+ <div class="card"><b>Later payments</b>${cur.p.map(p=>`<p>${dt(p.created_at)}: ${money(p.amount)} · <u onclick="editPay(${p.id},${p.amount})">edit</u> · <u onclick="delPay(${p.id})">delete</u></p>`).join('')||'<p class="m">None yet</p>'}</div><div class="card"><b>Edit customer</b><input id="ec" value="${e(x.name)}"><input id="ep" type="tel" value="${e(x.phone||'')}"><select id="ek"><option value="retail" ${x.kind=='retail'?'selected':''}>Retail</option><option value="wholesale" ${x.kind=='wholesale'?'selected':''}>Wholesale</option></select><button onclick="saveCust(${x.id})">Save changes</button><button class="s" onclick="delCust(${x.id})">Delete customer</button></div>`}
 async function addPay(){const a=+$('#pa').value;if(!(a>0))return alert('Enter the amount');
  const {error}=await sb.from('payments').insert({customer_id:cur.id,amount:a});if(error)return alert(error.message);await load();openC(cur.id)}
 
@@ -111,6 +112,24 @@ async function delCode(id){const c=D.c.find(x=>x.id==id);if(!confirm('Delete cod
 async function renV(id){const name=$('#vr'+id).value.trim();if(!name)return alert('Enter a name');const {error}=await sb.from('varieties').update({name}).eq('id',id);error?alert(error.message):go('price')}
 async function delV(id){if(!confirm('Delete this variety?'))return;const {error}=await sb.from('varieties').delete().eq('id',id);
  error?alert(error.code=='23503'?'This variety still has codes. Delete or move those codes first.':error.message):go('price')}
+function prodList(){const g={};D.pr.forEach(r=>{const k=r.code_id+'|'+r.created_at;(g[k]??={code:r.code_id,at:r.created_at,rows:[]}).rows.push(r)});
+ const L=Object.values(g).slice(0,30);
+ return '<h3>Recent production</h3>'+(L.map(x=>{const c=D.c.find(y=>y.id==x.code),pack=x.rows.length==3&&SZ.every(z=>x.rows.some(r=>r.size==z)),ids=x.rows.map(r=>r.id).join(',');
+  const t=pack?'Pack × '+x.rows[0].qty:x.rows.map(r=>r.size+' × '+r.qty).join(', ');
+  return `<div class="card"><b>${e(c?c.code:'?')}</b> <span class="m">${dt(x.at)}</span><br>${t}<div class="row"><button class="s" onclick="editProd('${ids}',${x.rows[0].qty})">Edit quantity</button><button class="s" onclick="delProd('${ids}')">Delete</button></div></div>`}).join('')||'<p class="m">No production entries yet</p>')}
+async function editProd(ids,q){const v=prompt('New quantity',q);if(v===null)return;const n=parseInt(v);if(!(n>=1))return alert('Enter a quantity of 1 or more');
+ const {error}=await sb.from('production').update({qty:n}).in('id',ids.split(',').map(Number));error?alert(error.message):go('prod')}
+async function delProd(ids){if(!confirm('Delete this production entry? Stock will go down.'))return;
+ const {error}=await sb.from('production').delete().in('id',ids.split(',').map(Number));error?alert(error.message):go('prod')}
+async function saveCust(id){const name=$('#ec').value.trim();if(!name)return alert('Enter a name');
+ const {error}=await sb.from('customers').update({name,phone:$('#ep').value.trim()||null,kind:$('#ek').value}).eq('id',id);if(error)return alert(error.message);await load();openC(id)}
+async function delCust(id){if(!confirm('Delete this customer? This cannot be undone.'))return;
+ const {error}=await sb.from('customers').delete().eq('id',id);
+ error?alert(error.code=='23503'?'This customer has bills or payments, so they cannot be deleted. Cancel their bills and delete their payments first.':error.message):go('cust')}
+async function editPay(id,a){const v=prompt('New amount (₹)',a);if(v===null)return;const n=+v;if(!(n>0))return alert('Enter a valid amount');
+ const {error}=await sb.from('payments').update({amount:n}).eq('id',id);if(error)return alert(error.message);await load();openC(cur.id)}
+async function delPay(id){if(!confirm('Delete this payment?'))return;
+ const {error}=await sb.from('payments').delete().eq('id',id);if(error)return alert(error.message);await load();openC(cur.id)}
 async function all(t){let r=[],i=0,d;do{d=(await sb.from(t).select('*').range(i,i+999)).data||[];r=r.concat(d);i+=1000}while(d.length==1000);return r}
 async function backup(){const o={};for(const t of['varieties','price_codes','customers','bills','bill_items','payments','production'])o[t]=await all(t);
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(o,null,1)],{type:'application/json'}));a.download='backup-'+new Date().toISOString().slice(0,10)+'.json';a.click()}
