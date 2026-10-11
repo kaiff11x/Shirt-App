@@ -40,7 +40,7 @@ async function go(t){if(bill.edit&&t!='bill')bill={cust:'',lines:[]};inApp=true;
 function draw(){
  $('#nav').innerHTML=tabs.map(([k,n])=>`<button class="${k==tab?'on':''}" onclick="go('${k}')">${n}</button>`).join('');
  $('#app').innerHTML=({stock:vStock,prod:vProd,bill:vBill,cust:vCust,price:vPrice,co:vCo,rep:vRep})[tab]();
- if(tab=='bill'&&D.c.length)fill();
+ if(tab=='bill'){if(D.c.length)fill();sumUp()}
 }
 const codeOpts=()=>opts(D.c.filter(x=>x.active),x=>`<option value="${x.id}">${e(x.code)} · ${e(lab(x))} · ${money(x.pack_price)}</option>`);
 const due=id=>D.du.find(x=>x.customer_id==id)?.due||0;
@@ -57,9 +57,12 @@ async function addProd(){const c=+$('#pc').value,u=$('#pu').value,q=+$('#pq').va
 
 function vBill(){const t=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),d=due(bill.cust);
  return `<h2>${bill.edit?'Edit bill #'+bill.edit:'New bill'}</h2><div class="card"><select onchange="bill.cust=this.value;draw()"><option value="">Select customer</option>${opts(D.cu,x=>`<option value="${x.id}" ${x.id==bill.cust?'selected':''}>${e(x.name)} (${x.kind})</option>`)}</select><label class="m">Bill date</label><input type="date" value="${bill.date||today()}" onchange="bill.date=this.value">${bill.cust?`<p class="m">Old dues: <b class="${d>0?'low':''}">${money(d)}</b></p>`:'<p class="m">New customer? Add them under Customers first.</p>'}</div>
- <div class="card"><select id="lc" onchange="fill()">${codeOpts()}</select><div class="row"><select id="lu" onchange="fill()"><option value="pack">Pack of 3</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="lq" type="number" min="1" value="1"></div><input id="lp" type="number" placeholder="Price each"><button class="s" onclick="addLine()">Add item</button></div>
- <div class="card">${bill.lines.map((l,i)=>`<p>${e(l.code)} · ${l.unit=='pack'?'pack':l.size} × ${l.qty} @ ${money(l.price)} = <b>${money(l.qty*l.price)}</b> <a onclick="bill.lines.splice(${i},1);draw()">✕</a></p>`).join('')||'<p class="m">No items yet</p>'}${gstUI()}<input id="bp" type="number" placeholder="Paid now (₹)" value="${bill.paidv??''}" onchange="bill.paidv=this.value"><button onclick="saveBill()">Save bill</button></div>`}
-function fill(){const c=D.c.find(x=>x.id==$('#lc').value);if(c)$('#lp').value=$('#lu').value=='pack'?c.pack_price:c.single_price}
+ <div class="card"><select id="lc" onchange="fill()">${codeOpts()}</select><div class="row"><select id="lu" onchange="fill()"><option value="pack">Pack of 3</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="lq" type="number" min="1" value="1" oninput="liveLine()"></div><input id="lp" type="number" placeholder="Price each" oninput="liveLine()"><p id="lv" style="margin:4px 0;font-weight:700"></p><button class="s" onclick="addLine()">Add item</button></div>
+ <div class="card">${bill.lines.map((l,i)=>`<p>${e(l.code)} · ${l.unit=='pack'?'pack':l.size} × ${l.qty} @ ${money(l.price)} = <b>${money(l.qty*l.price)}</b> <a onclick="bill.lines.splice(${i},1);draw()">✕</a></p>`).join('')||'<p class="m">No items yet</p>'}${gstUI()}<input id="bp" type="number" placeholder="Paid now (₹)" value="${bill.paidv??''}" oninput="sumUp()" onchange="bill.paidv=this.value"><button onclick="saveBill()">Save bill</button></div>`}
+function fill(){const c=D.c.find(x=>x.id==$('#lc').value);if(c)$('#lp').value=$('#lu').value=='pack'?c.pack_price:c.single_price;liveLine()}
+function liveLine(){const q=+$('#lq').value,v=$('#lp').value,el=$('#lv');if(!el)return;el.textContent=q>0&&v!==''?q+' × '+money(+v)+' = '+money(q*(+v)):''}
+function sumUp(){const el=$('#sm');if(!el)return;const c=calc(),d=bill.edit?(+bill.prev||0):(bill.cust?due(bill.cust):0),tp=c.tot+d,paid=+($('#bp')?$('#bp').value:0)||0;
+ el.innerHTML=`<table><tr><td>Bill total</td><td align="right">${money(c.tot)}</td></tr><tr><td>Old dues</td><td align="right">${money(d)}</td></tr><tr><td><b>Total to pay</b></td><td align="right"><b>${money(tp)}</b></td></tr><tr><td>Paid now</td><td align="right">${money(paid)}</td></tr><tr><td><b>Balance after this bill</b></td><td align="right"><b>${money(tp-paid)}</b></td></tr></table>`}
 function addLine(){const c=D.c.find(x=>x.id==$('#lc').value),u=$('#lu').value,q=+$('#lq').value,p=$('#lp').value;
  if(!c||!(q>=1)||p==='')return alert('Fill code, quantity and price');
  bill.lines.push({id:c.id,code:c.code,unit:u=='pack'?'pack':'single',size:u=='pack'?null:u,qty:q,price:+p});draw()}
@@ -139,7 +142,7 @@ function calc(){const sub=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),R2=x=>Math
  if(bill.incl){const base=R2(sub/(1+r));return{sub:base,g:R2(sub-base),tot:sub}}
  const g=R2(sub*r);return{sub,g,tot:R2(sub+g)}}
 function gstUI(){const c=calc(),ck=(k,l)=>`<label><input type="checkbox" style="width:auto" ${bill[k]?'checked':''} onchange="bill.${k}=this.checked;draw()"> ${l}</label>`;
- return ck('gst','GST bill')+(bill.gst?`<input type="number" step="0.01" placeholder="GST %" value="${bill.rate||''}" onchange="bill.rate=+this.value;draw()">`+ck('incl','Prices already include GST')+ck('igst','Other state (IGST)')+`<p class="m">Amount ${money(c.sub)} · GST ${money(c.g)}</p>`:'')+`<h3>Total ${money(c.tot)}</h3>`}
+ return ck('gst','GST bill')+(bill.gst?`<input type="number" step="0.01" placeholder="GST %" value="${bill.rate||''}" onchange="bill.rate=+this.value;draw()">`+ck('incl','Prices already include GST')+ck('igst','Other state (IGST)')+`<p class="m">Amount ${money(c.sub)} · GST ${money(c.g)}</p>`:'')+`<h3>Bill total ${money(c.tot)}</h3><div id="sm"></div>`}
 async function showBill(id){const {data:b,error}=await sb.from('bills').select('*,customers(name,phone),bill_items(*,price_codes(code,sub_variety,varieties(name)))').eq('id',id).single();
  if(error)return alert(error.message);await load();lastB=b;inApp=true;$('#nav').innerHTML='';$('#app').innerHTML=billHTML(b,D.st)}
 function billHTML(b,S){const g=b.gst_type&&b.gst_type!='none',bal=(+b.prev_due)+(+b.total)-(+b.paid),h=b.gst_rate/2;
