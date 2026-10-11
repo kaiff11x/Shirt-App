@@ -23,10 +23,10 @@ nav button{background:none;color:var(--m);border:0;border-radius:0;margin:0;padd
 const sb=supabase.createClient('https://weekbclyaomqurbsokbk.supabase.co','sb_publishable_6JcVHT_nXdCGJZSMtwSmBA_wlloZ2x0');
 const $=s=>document.querySelector(s),e=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SZ=['M','L','XL'],money=n=>'₹'+Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2}),opts=(a,f)=>a.map(f).join('');
-const lg=n=>`<svg width="${n}" height="${n}" viewBox="0 0 120 120"><use href="#lg"/></svg>`;
+const lg=n=>`<svg width="${n}" height="${n}" viewBox="0 0 120 120"><rect x="2" y="2" width="116" height="116" rx="28" fill="#064e3b" stroke="#a7f3d0" stroke-width="3"/><path d="M44 24L28 32L14 56L28 64L34 54V98H86V54L92 64L106 56L92 32L76 24L60 38Z" fill="#fff"/><path d="M44 24L60 38L50 46L36 34Z" fill="#a7f3d0"/><path d="M76 24L60 38L70 46L84 34Z" fill="#a7f3d0"/><g fill="none" stroke="#064e3b" stroke-linejoin="round"><path stroke-width="3.4" d="M41 86V56L55 86V56M63 56V86M63 56H69Q76 56 76 62.5Q76 69 69 69H63M63 69H71Q79 69 79 77.5Q79 86 71 86H63"/><path stroke-width="1.6" d="M41 92H79"/></g></svg>`;
 const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
 const dt=d=>new Date(d).toLocaleDateString('en-IN');
-let lastB,rep={from:today().slice(0,8)+'01',to:today()},inApp=false,tab='stock',D={v:[],c:[],s:[],cu:[],du:[]},bill={cust:'',lines:[]},cur=null;
+let backTab='stock',hf={q:'',from:'',to:''},lastB,rep={from:today().slice(0,8)+'01',to:today()},inApp=false,tab='stock',D={v:[],c:[],s:[],cu:[],du:[]},bill={cust:'',lines:[]},cur=null;
 const tabs=[['stock','Stock'],['prod','Produce'],['bill','Bill'],['cust','Customers'],['price','Prices']];
 async function load(){
  const r=await Promise.all(['varieties','price_codes','stock','customers','customer_dues'].map(t=>sb.from(t).select('*')));
@@ -34,12 +34,13 @@ async function load(){
  const [v,c,s,cu,du]=r.map(x=>x.data||[]);
  const st=(await sb.from('settings').select('data').eq('id',1)).data?.[0]?.data||{};
  const pr=(await sb.from('production').select('*').order('id',{ascending:false}).limit(150)).data||[];
- D={v,c:c.sort((a,b)=>a.code.localeCompare(b.code)),s,cu,du,st,pr};
+ const bh=tab=='hist'?(await sb.from('bills').select('id,created_at,total,paid,gst_type,customers(name)').order('id',{ascending:false}).limit(500)).data||[]:[];
+ D={v,c:c.sort((a,b)=>a.code.localeCompare(b.code)),s,cu,du,st,pr,bh};
 }
 async function go(t){if(bill.edit&&t!='bill')bill={cust:'',lines:[]};inApp=true;tab=t;cur=null;await load();draw()}
 function draw(){
  $('#nav').innerHTML=tabs.map(([k,n])=>`<button class="${k==tab?'on':''}" onclick="go('${k}')">${n}</button>`).join('');
- $('#app').innerHTML=({stock:vStock,prod:vProd,bill:vBill,cust:vCust,price:vPrice,co:vCo,rep:vRep})[tab]();
+ $('#app').innerHTML=({stock:vStock,prod:vProd,bill:vBill,cust:vCust,price:vPrice,co:vCo,rep:vRep,hist:vHist})[tab]();
  if(tab=='bill'){if(D.c.length)fill();sumUp()}
 }
 const codeOpts=()=>opts(D.c.filter(x=>x.active),x=>`<option value="${x.id}">${e(x.code)} · ${e(lab(x))} · ${money(x.pack_price)}</option>`);
@@ -48,7 +49,7 @@ const vn=id=>D.v.find(v=>v.id==id)?.name||'',lab=x=>vn(x.variety_id)+(x.sub_vari
 
 function vStock(){const m={};D.s.forEach(r=>(m[r.code]??={})[r.size]=r.in_stock);
  return `<h2>Stock</h2>${lowBox()}<div class="card"><table><tr><th>Code</th>${SZ.map(s=>`<th>${s}</th>`).join('')}</tr>${Object.keys(m).sort().map(k=>`<tr><td>${e(k)}<br><span class="m">${e(lab(D.c.find(c=>c.code==k)||{variety_id:0}))}</span></td>${SZ.map(s=>`<td class="${m[k][s]<=low()?'low':''}">${m[k][s]??0}</td>`).join('')}</tr>`).join('')||'<tr><td>No codes yet. Add them under Prices.</td></tr>'}</table></div>
- <button class="s" onclick="go('rep')">Sales report</button><button class="s" onclick="go('co')">Company details</button><button class="s" onclick="backup()">Download backup</button><button class="s" onclick="sb.auth.signOut()">Log out</button>`}
+ <button class="s" onclick="go('hist')">Bill history</button><button class="s" onclick="go('rep')">Sales report</button><button class="s" onclick="go('co')">Company details</button><button class="s" onclick="backup()">Download backup</button><button class="s" onclick="sb.auth.signOut()">Log out</button>`}
 
 function vProd(){return `<h2>Add production</h2><div class="card"><select id="pc">${codeOpts()}</select><select id="pu"><option value="pack">Full packs (1 M + 1 L + 1 XL each)</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="pq" type="number" min="1" placeholder="Quantity"><button onclick="addProd()">Add to stock</button></div>${prodList()}`}
 async function addProd(){const c=+$('#pc').value,u=$('#pu').value,q=+$('#pq').value;if(!c||!(q>=1))return alert('Choose a code and enter a quantity');
@@ -56,7 +57,7 @@ async function addProd(){const c=+$('#pc').value,u=$('#pu').value,q=+$('#pq').va
  if(error)return alert(error.message);alert('Stock added');go('stock')}
 
 function vBill(){const t=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),d=due(bill.cust);
- return `<h2>${bill.edit?'Edit bill #'+bill.edit:'New bill'}</h2><div class="card"><select onchange="bill.cust=this.value;draw()"><option value="">Select customer</option>${opts(D.cu,x=>`<option value="${x.id}" ${x.id==bill.cust?'selected':''}>${e(x.name)} (${x.kind})</option>`)}</select><label class="m">Bill date</label><input type="date" value="${bill.date||today()}" onchange="bill.date=this.value">${bill.cust?`<p class="m">Old dues: <b class="${d>0?'low':''}">${money(d)}</b></p>`:'<p class="m">New customer? Add them under Customers first.</p>'}</div>
+ return `<h2>${bill.edit?'Edit bill #'+bill.edit:'New bill'}</h2><button class="s" onclick="go('hist')">Bill history</button><div class="card"><select onchange="bill.cust=this.value;draw()"><option value="">Select customer</option>${opts(D.cu,x=>`<option value="${x.id}" ${x.id==bill.cust?'selected':''}>${e(x.name)} (${x.kind})</option>`)}</select><label class="m">Bill date</label><input type="date" value="${bill.date||today()}" onchange="bill.date=this.value">${bill.cust?`<p class="m">Old dues: <b class="${d>0?'low':''}">${money(d)}</b></p>`:'<p class="m">New customer? Add them under Customers first.</p>'}</div>
  <div class="card"><select id="lc" onchange="fill()">${codeOpts()}</select><div class="row"><select id="lu" onchange="fill()"><option value="pack">Pack of 3</option>${SZ.map(s=>`<option>${s}</option>`).join('')}</select><input id="lq" type="number" min="1" value="1" oninput="liveLine()"></div><input id="lp" type="number" placeholder="Price each" oninput="liveLine()"><p id="lv" style="margin:4px 0;font-weight:700"></p><button class="s" onclick="addLine()">Add item</button></div>
  <div class="card">${bill.lines.map((l,i)=>`<p>${e(l.code)} · ${l.unit=='pack'?'pack':l.size} × ${l.qty} @ ${money(l.price)} = <b>${money(l.qty*l.price)}</b> <a onclick="bill.lines.splice(${i},1);draw()">✕</a></p>`).join('')||'<p class="m">No items yet</p>'}${gstUI()}<input id="bp" type="number" placeholder="Paid now (₹)" value="${bill.paidv??''}" oninput="sumUp()" onchange="bill.paidv=this.value"><button onclick="saveBill()">Save bill</button></div>`}
 function fill(){const c=D.c.find(x=>x.id==$('#lc').value);if(c)$('#lp').value=$('#lu').value=='pack'?c.pack_price:c.single_price;liveLine()}
@@ -133,6 +134,26 @@ async function editPay(id,a){const v=prompt('New amount (₹)',a);if(v===null)re
  const {error}=await sb.from('payments').update({amount:n}).eq('id',id);if(error)return alert(error.message);await load();openC(cur.id)}
 async function delPay(id){if(!confirm('Delete this payment?'))return;
  const {error}=await sb.from('payments').delete().eq('id',id);if(error)return alert(error.message);await load();openC(cur.id)}
+const lib=u=>new Promise((ok,no)=>{const x=document.createElement('script');x.src=u;x.onload=ok;x.onerror=()=>no(new Error('Could not load PDF tools. Check your internet.'));document.head.appendChild(x)});
+async function loadLibs(){if(!window.html2canvas)await lib('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');if(!window.jspdf)await lib('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js')}
+let pdfP=null;
+function prepPdf(name){const el=document.querySelector('.bill');if(!el)return;
+ pdfP=(async()=>{await loadLibs();await new Promise(r=>setTimeout(r,250));const cv=await html2canvas(el,{scale:2,backgroundColor:'#ffffff'});
+  const pdf=new window.jspdf.jsPDF({unit:'pt',format:'a4'});let w=555,h=cv.height*w/cv.width;if(h>800){h=800;w=cv.width*h/cv.height}
+  pdf.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',(595-w)/2,20,w,h);
+  return new File([pdf.output('blob')],name+'.pdf',{type:'application/pdf'})})();
+ const done=()=>{const b=document.getElementById('shb');if(b){b.disabled=false;b.textContent='Share PDF'}};pdfP.then(done,done)}
+async function shareBill(){if(!pdfP)return alert('Please wait a moment and try again');
+ let f;try{f=await pdfP}catch(err){return alert('Could not create the PDF: '+err.message)}
+ try{if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f],title:f.name});
+  else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;a.click()}}
+ catch(err){if(err.name!='AbortError')alert('Could not share: '+err.message)}}
+function vHist(){return `<h2>Bill history</h2><div class="card"><input placeholder="Search customer or bill number" value="${e(hf.q)}" oninput="hf.q=this.value;histList()"><div class="row"><input type="date" value="${hf.from}" onchange="hf.from=this.value;histList()"><input type="date" value="${hf.to}" onchange="hf.to=this.value;histList()"></div></div><div id="hl">${histBody()}</div><button class="s" onclick="go('stock')">Back</button>`}
+function histBody(){const q=hf.q.trim().toLowerCase();
+ const L=(D.bh||[]).filter(b=>(!q||String(b.id)==q||(b.customers?.name||'').toLowerCase().includes(q))&&(!hf.from||ld(b.created_at)>=hf.from)&&(!hf.to||ld(b.created_at)<=hf.to));
+ const T=L.reduce((a,b)=>a+(+b.total),0);
+ return `<p class="m">${L.length} bills · total ${money(T)}</p>`+(L.map(b=>{const u=(+b.total)-(+b.paid);return `<div class="card" onclick="backTab='hist';showBill(${b.id})"><b>#${b.id}</b> · ${dt(b.created_at)}${b.gst_type&&b.gst_type!='none'?' · GST':''}<br>${e(b.customers?.name||'')}<br>Total ${money(b.total)} · Paid ${money(b.paid)}${u>0?` · <span class="low">Unpaid ${money(u)}</span>`:''}</div>`}).join('')||'<p class="m">No bills found</p>')}
+function histList(){$('#hl').innerHTML=histBody()}
 async function all(t){let r=[],i=0,d;do{d=(await sb.from(t).select('*').range(i,i+999)).data||[];r=r.concat(d);i+=1000}while(d.length==1000);return r}
 async function backup(){const o={};for(const t of['varieties','price_codes','customers','bills','bill_items','payments','production'])o[t]=await all(t);
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(o,null,1)],{type:'application/json'}));a.download='backup-'+new Date().toISOString().slice(0,10)+'.json';a.click()}
@@ -144,9 +165,9 @@ function calc(){const sub=bill.lines.reduce((a,l)=>a+l.qty*l.price,0),R2=x=>Math
 function gstUI(){const c=calc(),ck=(k,l)=>`<label><input type="checkbox" style="width:auto" ${bill[k]?'checked':''} onchange="bill.${k}=this.checked;draw()"> ${l}</label>`;
  return ck('gst','GST bill')+(bill.gst?`<input type="number" step="0.01" placeholder="GST %" value="${bill.rate||''}" onchange="bill.rate=+this.value;draw()">`+ck('incl','Prices already include GST')+ck('igst','Other state (IGST)')+`<p class="m">Amount ${money(c.sub)} · GST ${money(c.g)}</p>`:'')+`<h3>Bill total ${money(c.tot)}</h3><div id="sm"></div>`}
 async function showBill(id){const {data:b,error}=await sb.from('bills').select('*,customers(name,phone),bill_items(*,price_codes(code,sub_variety,varieties(name)))').eq('id',id).single();
- if(error)return alert(error.message);await load();lastB=b;inApp=true;$('#nav').innerHTML='';$('#app').innerHTML=billHTML(b,D.st)}
+ if(error)return alert(error.message);await load();lastB=b;inApp=true;$('#nav').innerHTML='';$('#app').innerHTML=billHTML(b,D.st);prepPdf('Bill-'+b.id)}
 function billHTML(b,S){const g=b.gst_type&&b.gst_type!='none',bal=(+b.prev_due)+(+b.total)-(+b.paid),h=b.gst_rate/2;
- return `<div class="no-print"><button onclick="window.print()">Print / Share PDF</button><button class="s" onclick="go('stock')">Done</button><button class="s" onclick="editBill()">Edit bill</button><button class="s" onclick="cancelBill(${b.id})">Cancel bill</button></div>
+ return `<div class="no-print"><button id="shb" disabled onclick="shareBill()">Preparing PDF…</button><button class="s" onclick="window.print()">Print</button><button class="s" onclick="go(backTab);backTab='stock'">Done</button><button class="s" onclick="editBill()">Edit bill</button><button class="s" onclick="cancelBill(${b.id})">Cancel bill</button></div>
 <div class="bill"><div class="hd">${lg(60)}<h1>${e(S.name||'New BABA Garments')}</h1><p>${e(S.tag||'')}</p><p>${e(S.addr||'')}</p><p>${e(S.ph||'')} ${e(S.mail||'')}</p>${S.gstin?`<p><b>GSTIN:</b> ${e(S.gstin)}</p>`:''}</div><div class="bd">${g?'TAX INVOICE':'BILL'}</div><div class="in">
 <div class="box"><b>Bill no:</b> ${b.id} &nbsp; <b>Date:</b> ${dt(b.created_at)}<br><b>Customer:</b> ${e(b.customers.name)} ${e(b.customers.phone||'')}</div>
 <table><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>${b.bill_items.map(i=>`<tr><td>${e(i.price_codes.code)} ${i.unit=='pack'?'(pack of 3)':'('+i.size+')'}<br><small>${e(i.price_codes.varieties?.name||'')}${i.price_codes.sub_variety?' – '+e(i.price_codes.sub_variety):''}</small></td><td>${i.qty}</td><td>${money(i.unit_price)}</td><td>${money(i.qty*i.unit_price)}</td></tr>`).join('')}</table>
@@ -160,7 +181,7 @@ const low=()=>{const v=parseInt(D.st.low);return isNaN(v)?5:v};
 const lowBox=()=>{const l=D.s.filter(r=>r.in_stock<=low()).map(r=>`${e(r.code)} ${r.size} (${r.in_stock})`);return l.length?`<div class="card low">Low stock: ${l.join(', ')}</div>`:''};
 function statement(){const x=D.cu.find(y=>y.id==cur.id),S=D.st;
  const rows=[...cur.b.map(b=>({d:b.created_at,t:'Bill #'+b.id,dr:+b.total,cr:+b.paid})),...cur.p.map(p=>({d:p.created_at,t:'Payment received',dr:0,cr:+p.amount}))].sort((a,b)=>new Date(a.d)-new Date(b.d));let bal=0;
- $('#nav').innerHTML='';$('#app').innerHTML=`<div class="no-print"><button onclick="window.print()">Print / Share PDF</button><button class="s" onclick="go('cust')">Done</button></div><div class="bill"><div class="hd">${lg(60)}<h1>${e(S.name||'New BABA Garments')}</h1><p>${e(S.ph||'')}</p></div><div class="bd">ACCOUNT STATEMENT</div><div class="in"><div class="box"><b>Customer:</b> ${e(x.name)} ${e(x.phone||'')}<br><b>Date:</b> ${dt(new Date())}</div><table><tr><th>Date</th><th>Details</th><th>Billed</th><th>Paid</th><th>Balance</th></tr>${rows.map(r=>{bal+=r.dr-r.cr;return `<tr><td>${dt(r.d)}</td><td>${r.t}</td><td>${money(r.dr)}</td><td>${money(r.cr)}</td><td>${money(bal)}</td></tr>`}).join('')}<tr class="tot"><td colspan="4">Balance due</td><td>${money(bal)}</td></tr></table></div><div class="ty">Thank you, visit again!</div></div>`}
+ $('#nav').innerHTML='';$('#app').innerHTML=`<div class="no-print"><button id="shb" disabled onclick="shareBill()">Preparing PDF…</button><button class="s" onclick="window.print()">Print</button><button class="s" onclick="go('cust')">Done</button></div><div class="bill"><div class="hd">${lg(60)}<h1>${e(S.name||'New BABA Garments')}</h1><p>${e(S.ph||'')}</p></div><div class="bd">ACCOUNT STATEMENT</div><div class="in"><div class="box"><b>Customer:</b> ${e(x.name)} ${e(x.phone||'')}<br><b>Date:</b> ${dt(new Date())}</div><table><tr><th>Date</th><th>Details</th><th>Billed</th><th>Paid</th><th>Balance</th></tr>${rows.map(r=>{bal+=r.dr-r.cr;return `<tr><td>${dt(r.d)}</td><td>${r.t}</td><td>${money(r.dr)}</td><td>${money(r.cr)}</td><td>${money(bal)}</td></tr>`}).join('')}<tr class="tot"><td colspan="4">Balance due</td><td>${money(bal)}</td></tr></table></div><div class="ty">Thank you, visit again!</div></div>`;prepPdf('Statement')}
 function vRep(){return `<h2>Sales report</h2><div class="card"><div class="row"><input type="date" id="rf" value="${rep.from}"><input type="date" id="rt" value="${rep.to}"></div><button onclick="runRep()">Show report</button></div>${rep.html||''}<button class="s" onclick="go('stock')">Back</button>`}
 async function runRep(){rep.from=$('#rf').value;rep.to=$('#rt').value;const a=new Date(rep.from+'T00:00:00').toISOString(),z=new Date(rep.to+'T23:59:59').toISOString();
  const [b,p]=await Promise.all([sb.from('bills').select('total,paid,gst_amount,bill_items(code_id,qty,unit_price)').gte('created_at',a).lte('created_at',z),sb.from('payments').select('amount').gte('created_at',a).lte('created_at',z)]);
